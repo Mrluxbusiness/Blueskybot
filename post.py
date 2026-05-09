@@ -1,14 +1,13 @@
 import os
 import re
 import time
-import json
 import random
 import requests
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from image_gen import generate_image
 
-# ─── ACCOUNTS CONFIG ──────────────────────────────────────────────────────────
+# ─── ACCOUNTS ────────────────────────────────────────────────────────────────
 def load_accounts() -> list[dict]:
     accounts = []
     for i in range(1, 6):
@@ -17,318 +16,174 @@ def load_accounts() -> list[dict]:
         if handle and password:
             accounts.append({"id": i, "handle": handle, "password": password})
     if not accounts:
-        print("❌ কোনো account পাওয়া যায়নি! BSKY_HANDLE_1 এবং BSKY_PASSWORD_1 set করুন।")
+        print("❌ কোনো account পাওয়া যায়নি!")
         exit(1)
     return accounts
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+DEEPSEEK_API_KEY     = os.environ.get("DEEPSEEK_API_KEY")
+TIKTOK_COURSE_URL    = os.environ.get("TIKTOK_COURSE_URL", "")
+INSTAGRAM_COURSE_URL = os.environ.get("INSTAGRAM_COURSE_URL", "")
+
 if not DEEPSEEK_API_KEY:
     print("❌ DEEPSEEK_API_KEY missing!")
     exit(1)
 
-# ─── COURSE URLs (from GitHub Secrets) ────────────────────────────────────────
-TIKTOK_COURSE_URL    = os.environ.get("TIKTOK_COURSE_URL", "")
-INSTAGRAM_COURSE_URL = os.environ.get("INSTAGRAM_COURSE_URL", "")
 
-# ─── 15 ANGLES — 5 CATEGORIES ────────────────────────────────────────────────
-# Category A: VALUE-FIRST (no link) — 40%
-# Category B: CURIOSITY + SOFT SELL — 25%
-# Category C: SOCIAL PROOF (subtle link) — 15%
-# Category D: DIRECT OFFER (bold link) — 15%
-# Category E: ENGAGEMENT BAIT (no link) — 5%
+# ─── MASTER PROMPT ────────────────────────────────────────────────────────────
+# Research-backed: Bluesky values authority, specificity, and genuine helpfulness.
+# No income claims. No price anchoring. Teach first, sell softly.
 
-ANGLES = {
-    # ── Category A: VALUE-FIRST ───────────────────────────────────────────────
-    "A1": {
-        "id": "A1", "category": "value", "course": "tiktok",
-        "image_main": "3 TikTok Hacks That Actually Work",
-        "image_sub": "Grow faster in 2026 🚀",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Share 3 quick TikTok growth hacks that actually work in 2026.
-Tone: Expert sharing free knowledge. Genuine, helpful, NOT salesy.
-Include relevant hashtags: #TikTok #ContentCreator #GrowthHacks
-Return ONLY the post text, nothing else."""
-    },
-    "A2": {
-        "id": "A2", "category": "value", "course": "instagram",
-        "image_main": "Instagram Algorithm in 2026",
-        "image_sub": "What actually gets you reach 📈",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Reveal what Instagram's 2026 algorithm actually favors — Reels length, carousel tips, posting time.
-Tone: Insider knowledge, genuinely helpful. NOT an ad.
-Include hashtags: #Instagram #Algorithm #SocialMediaTips
-Return ONLY the post text, nothing else."""
-    },
-    "A3": {
-        "id": "A3", "category": "value", "course": "tiktok",
-        "image_main": "You DON'T Need 10K Followers",
-        "image_sub": "To make money on social media 💡",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Myth-bust — you don't need 10K followers to monetize social media. Explain why small accounts can earn too.
-Tone: Eye-opening, genuine, encouraging. NOT salesy.
-Include hashtags: #MakeMoneyOnline #SocialMedia #Monetization
-Return ONLY the post text, nothing else."""
-    },
-    "A4": {
-        "id": "A4", "category": "value", "course": "instagram",
-        "image_main": "One Bio Tweak = More DMs",
-        "image_sub": "Try this today 🎯",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Quick win — one simple change to your Instagram bio that increases DMs and profile visits.
-Tone: Friendly, actionable, like a friend giving a quick tip.
-Include hashtags: #InstagramTips #QuickWin #SocialMediaGrowth
-Return ONLY the post text, nothing else."""
-    },
-    "A5": {
-        "id": "A5", "category": "value", "course": "tiktok",
-        "image_main": "My Actual Content Calendar",
-        "image_sub": "Behind the scenes this week 📋",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Behind-the-scenes — share what a real content calendar looks like for a TikTok creator this week.
-Tone: Transparent, relatable, authentic. Like letting people peek behind the curtain.
-Include hashtags: #ContentCreator #BehindTheScenes #TikTokCreator
-Return ONLY the post text, nothing else."""
-    },
-    "A6": {
-        "id": "A6", "category": "value", "course": "instagram",
-        "image_main": "The #1 Monetization Mistake",
-        "image_sub": "Most people get this wrong ⚠️",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: The #1 mistake people make when trying to monetize Instagram — and what to do instead.
-Tone: Honest, educational, slightly cautionary. NOT preachy.
-Include hashtags: #InstagramIncome #CommonMistakes #SocialMediaTips
-Return ONLY the post text, nothing else."""
-    },
+def build_master_prompt(slot: int, course: str, variation: int) -> dict:
+    """
+    slot 1 = Morning  → Pure value, teach something specific. No CTA.
+    slot 2 = Afternoon → Curiosity / relatable story. No income claims.
+    slot 3 = Evening   → Soft offer, ONE link. Authority-led, not sales-led.
 
-    # ── Category B: CURIOSITY + SOFT SELL ─────────────────────────────────────
-    "B1": {
-        "id": "B1", "category": "curiosity", "course": "instagram",
-        "image_main": "$1,700 From Instagram",
-        "image_sub": "Last month alone. Here's what changed...",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Income reveal — made $1,700 last month from Instagram. Tease what changed without giving away everything.
-End with something like "I put everything in a step-by-step system..."
-Tone: Humble flex, genuine surprise, NOT braggy.
-Include hashtags: #InstagramIncome #OnlineIncome #SideHustle
-Return ONLY the post text, nothing else."""
-    },
-    "B2": {
-        "id": "B2", "category": "curiosity", "course": "tiktok",
-        "image_main": "From 200 Followers to $4,000+",
-        "image_sub": "6 months. Zero to income. 📈",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Before/after transformation — 6 months ago had 200 followers and $0, now making real income from TikTok.
-Hint that there's a system behind it. Don't hard-sell.
-Tone: Storytelling, inspiring, authentic.
-Include hashtags: #TikTokMoney #Transformation #OnlineIncome
-Return ONLY the post text, nothing else."""
-    },
-    "B3": {
-        "id": "B3", "category": "curiosity", "course": "tiktok",
-        "image_main": "Student Just Hit $500/Month",
-        "image_sub": "Started from scratch 🎉",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Student success — one of your students just hit their first $500 month on TikTok. Celebrate them.
-Subtly mention they followed your system/guide.
-Tone: Proud mentor, celebrating someone else's win.
-Include hashtags: #StudentSuccess #TikTokIncome #MakeMoneyOnline
-Return ONLY the post text, nothing else."""
-    },
-    "B4": {
-        "id": "B4", "category": "curiosity", "course": "instagram",
-        "image_main": "Courses Are a Waste of Money",
-        "image_sub": "Unless they cost $7 and actually work... 🤔",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Controversial take — most courses are overpriced garbage. But what if one cost $7 and actually delivered real results?
-Pattern interrupt — make people stop scrolling.
-Tone: Bold, slightly provocative, but honest.
-Include hashtags: #OnlineCourses #HotTake #MakeMoneyOnline
-Return ONLY the post text, nothing else."""
-    },
+    course = "instagram" or "tiktok"
+    variation = 0..4 (for multi-account uniqueness)
+    """
 
-    # ── Category C: SOCIAL PROOF ──────────────────────────────────────────────
-    "C1": {
-        "id": "C1", "category": "proof", "course": "tiktok",
-        "image_main": "Another Payment Just Hit 💸",
-        "image_sub": "This system works if you work it",
-        "include_link": True, "link_course": "tiktok",
-        "prompt": """Write a Bluesky post (STRICTLY under 250 chars, count carefully) in English.
-Angle: Payment proof — another payment just hit from TikTok monetization. The system works.
-End with a subtle CTA pointing to the course link (the link will be appended separately).
-Tone: Grateful, matter-of-fact, NOT braggy.
-Include hashtags: #TikTokIncome #ProofOfWork #OnlineIncome
-Return ONLY the post text, nothing else."""
-    },
-    "C2": {
-        "id": "C2", "category": "proof", "course": "instagram",
-        "image_main": "Got This DM Today...",
-        "image_sub": "Student results speak louder 🗣️",
-        "include_link": True, "link_course": "instagram",
-        "prompt": """Write a Bluesky post (STRICTLY under 250 chars, count carefully) in English.
-Angle: Student testimonial — got an amazing DM from a student who's now making money from Instagram.
-End with subtle CTA (the link will be appended separately).
-Tone: Proud, authentic, sharing someone else's win.
-Include hashtags: #Testimonial #InstagramIncome #Results
-Return ONLY the post text, nothing else."""
-    },
+    course_url   = INSTAGRAM_COURSE_URL if course == "instagram" else TIKTOK_COURSE_URL
+    platform     = "Instagram" if course == "instagram" else "TikTok"
+    opp_platform = "TikTok" if course == "instagram" else "Instagram"
 
-    # ── Category D: DIRECT OFFER ──────────────────────────────────────────────
-    "D1_tiktok": {
-        "id": "D1_tiktok", "category": "offer", "course": "tiktok",
-        "image_main": "TikTok Income Mastery — $7",
-        "image_sub": "8 Modules + Action Bonus 🎯",
-        "include_link": True, "link_course": "tiktok",
-        "prompt": """Write a Bluesky post (STRICTLY under 240 chars, count carefully) in English.
-Angle: Price anchor — most TikTok courses cost $197-$497. Yours is $7. Explain why (you want to help, not gatekeep).
-8 modules + action bonus. Real results. CTA: grab it before price goes up.
-The course link will be appended separately.
-Tone: Direct, confident, value-driven. NOT desperate.
-Include hashtags: #TikTokCourse #MakeMoneyOnline #OnlineBusiness
-Return ONLY the post text, nothing else."""
-    },
-    "D1_instagram": {
-        "id": "D1_instagram", "category": "offer", "course": "instagram",
-        "image_main": "Instagram Income Mastery — $7",
-        "image_sub": "8 Modules + Action Bonus 🎯",
-        "include_link": True, "link_course": "instagram",
-        "prompt": """Write a Bluesky post (STRICTLY under 240 chars, count carefully) in English.
-Angle: Price anchor — most Instagram courses cost $197-$497. Yours is $7. Explain why.
-8 modules + action bonus. Step-by-step system. CTA: lock it in now.
-The course link will be appended separately.
-Tone: Direct, confident, value-driven.
-Include hashtags: #InstagramCourse #MakeMoneyOnline #OnlineBusiness
-Return ONLY the post text, nothing else."""
-    },
-    "D2": {
-        "id": "D2", "category": "offer", "course": "tiktok",
-        "image_main": "Price Going Up Soon ⏰",
-        "image_sub": "$7 → $27 — Lock it in now",
-        "include_link": True, "link_course": "tiktok",
-        "prompt": """Write a Bluesky post (STRICTLY under 240 chars, count carefully) in English.
-Angle: Urgency — the $7 price is temporary, going up soon. Real scarcity, not fake hype.
-CTA: get it before the price changes. The link will be appended separately.
-Tone: Urgent but honest, NOT fake countdown pressure.
-Include hashtags: #LimitedTime #TikTokCourse #OnlineIncome
-Return ONLY the post text, nothing else."""
-    },
-    "D3_tiktok": {
-        "id": "D3_tiktok", "category": "offer", "course": "tiktok",
-        "image_main": "8 Modules. Real Results. $7.",
-        "image_sub": "TikTok Income Mastery 👇",
-        "include_link": True, "link_course": "tiktok",
-        "prompt": """Write a Bluesky post (STRICTLY under 240 chars, count carefully) in English.
-Angle: Direct CTA — 8 modules, action bonuses, real student results, only $7.
-Simple, clear, no fluff. The link will be appended separately.
-Tone: Confident, minimal, punchy.
-Include hashtags: #TikTokCourse #SideHustle #OnlineBusiness
-Return ONLY the post text, nothing else."""
-    },
-    "D3_instagram": {
-        "id": "D3_instagram", "category": "offer", "course": "instagram",
-        "image_main": "8 Modules. Real Results. $7.",
-        "image_sub": "Instagram Income Mastery 👇",
-        "include_link": True, "link_course": "instagram",
-        "prompt": """Write a Bluesky post (STRICTLY under 240 chars, count carefully) in English.
-Angle: Direct CTA — 8 modules, action bonuses, real student results, only $7. For Instagram.
-Simple, clear, no fluff. The link will be appended separately.
-Tone: Confident, minimal, punchy.
-Include hashtags: #InstagramCourse #SideHustle #OnlineBusiness
-Return ONLY the post text, nothing else."""
-    },
+    # Slot 3 appends link — keep text shorter to fit 300 char limit
+    char_limit = "under 240 characters" if slot == 3 else "under 280 characters"
 
-    # ── Category E: ENGAGEMENT BAIT ───────────────────────────────────────────
-    "E1": {
-        "id": "E1", "category": "engagement", "course": "tiktok",
-        "image_main": "What's Stopping You?",
-        "image_sub": "Wrong answers only 👇😂",
-        "include_link": False,
-        "prompt": """Write a Bluesky post (STRICTLY under 280 chars, count carefully) in English.
-Angle: Engagement question — ask "What's stopping you from making money online?" in a fun way.
-Invite wrong answers only or hot takes. Make it interactive.
-Tone: Fun, playful, community-building.
-Include hashtags: #MakeMoneyOnline #Question #Community
-Return ONLY the post text, nothing else."""
+    slot_instruction = {
+        1: f"""You are posting a VALUE post. Your ONLY goal is to teach.
+Pick ONE specific, counterintuitive tip about {platform} growth in 2026.
+Be concrete — mention a mechanism, a number, or a "why" that most people don't know.
+Do NOT mention any course, product, or yourself. Just pure value.
+End with a question to spark replies (e.g. "Have you tried this?").""",
+
+        2: f"""You are posting a CURIOSITY / STORY post.
+Share a short relatable observation or mistake creators make on {platform}.
+Frame it as "I noticed..." or "Most people do X, but actually Y."
+Be specific. No vague generalities.
+NO income claims (no "$X/month", no follower counts as proof).
+A soft, natural mention that you've documented what works is okay — but no hard sell.""",
+
+        3: f"""You are posting a SOFT OFFER post.
+You have a practical, affordable {platform} growth course ($7).
+Do NOT use price anchoring ("gurus charge $497").
+Do NOT make income claims.
+Instead, name ONE concrete skill or outcome the student gets from the course —
+something specific like "you'll know exactly which content format gets saved on {platform}, and why saves beat likes for the algorithm."
+End with a single gentle CTA. The course link will be added below automatically.
+Keep it human, not salesy. Sound like a builder sharing their work.""",
+    }[slot]
+
+    variation_note = (
+        f"\n\nThis is account variation #{variation + 1}. "
+        "Use a completely different opening word, angle, and sentence structure "
+        "from other variations. Be creative — same topic, fresh voice."
+        if variation > 0 else ""
+    )
+
+    system = """You are a Bluesky-native creator who understands this platform deeply.
+Bluesky users are tech-savvy, anti-spam, and left Twitter to escape "guru" culture.
+They reward specificity and punish vague marketing language.
+Rules you NEVER break:
+- No income claims ("I made $X", "from 200 to $4000")
+- No price anchoring ("gurus charge $497, I charge $7")
+- No fake urgency ("price going up soon")
+- No generic hashtags like #MakeMoneyOnline or #OnlineBusiness
+- Use only 2–3 highly specific hashtags relevant to the content
+- Sound like a real person, not a marketing bot
+- Return ONLY the post text. Nothing else. No quotes around it."""
+
+    user = f"""{slot_instruction}
+
+Platform focus: {platform}
+Character limit: {char_limit} — count carefully before returning.
+Use 2–3 specific hashtags (e.g. #{platform}Tips, #ContentStrategy, #CreatorTips — pick what fits).
+{variation_note}
+
+Return ONLY the post text."""
+
+    return {"system": system, "user": user, "slot": slot, "course": course, "course_url": course_url, "platform": platform}
+
+
+# ─── IMAGE METADATA ───────────────────────────────────────────────────────────
+IMAGE_META = {
+    # slot → (main_text, sub_text, category)
+    1: {
+        "instagram": ("Instagram Algorithm 2026",    "What actually gets you reach 📈",   "value"),
+        "tiktok":    ("TikTok Tips That Work",        "Grow faster this year 🚀",          "value"),
+    },
+    2: {
+        "instagram": ("Most Creators Get This Wrong", "Here's what actually works 💡",     "curiosity"),
+        "tiktok":    ("The Mistake Killing Your Reach","And the simple fix 🔧",             "curiosity"),
+    },
+    3: {
+        "instagram": ("Instagram Income Mastery",     "Step-by-step · $7 · 8 Modules 🎯", "offer"),
+        "tiktok":    ("TikTok Income Mastery",        "Step-by-step · $7 · 8 Modules 🎯", "offer"),
     },
 }
 
-# ─── WEEKLY SCHEDULE ──────────────────────────────────────────────────────────
-# Day → (Morning angle, Afternoon angle, Evening angle)
-# Slot 1 = morning (value), Slot 2 = afternoon (curiosity/proof), Slot 3 = evening (offer/engagement)
-WEEKLY_SCHEDULE = {
-    0: ("A1", "B1",          "D1_tiktok"),      # Monday
-    1: ("A2", "B2",          "E1"),              # Tuesday
-    2: ("A3", "C1",          "D2"),              # Wednesday
-    3: ("A4", "B3",          "D3_tiktok"),       # Thursday
-    4: ("A5", "B4",          "D1_instagram"),    # Friday
-    5: ("A6", "C2",          "D3_instagram"),    # Saturday
-    6: ("A1", "B1",          "E1"),              # Sunday
+
+# ─── WEEKLY COURSE ROTATION ───────────────────────────────────────────────────
+# Alternate Instagram / TikTok so both get equal exposure across the week
+COURSE_BY_DAY = {
+    0: "instagram",  # Monday
+    1: "tiktok",
+    2: "instagram",
+    3: "tiktok",
+    4: "instagram",
+    5: "tiktok",
+    6: "instagram",  # Sunday
 }
 
-# ─── DEEPSEEK: TEXT GENERATE ──────────────────────────────────────────────────
-def generate_post_text(angle_data: dict, variation_seed: int = 0) -> str:
-    """Generate unique post text. variation_seed ensures different text per account."""
-    prompt = angle_data["prompt"]
-    if variation_seed > 0:
-        prompt += f"\n\nIMPORTANT: This is variation #{variation_seed}. Make it meaningfully different from other versions — use different opening, different structure, different examples. Be creative."
+
+# ─── AI TEXT GENERATION ───────────────────────────────────────────────────────
+def generate_post_text(prompt_data: dict, variation: int) -> str:
+    built = build_master_prompt(prompt_data["slot"], prompt_data["course"], variation)
 
     response = requests.post(
         "https://api.deepseek.com/chat/completions",
         headers={
             "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json",
+            "Content-Type":  "application/json",
         },
         json={
-            "model": "deepseek-chat",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 350,
-            "temperature": 0.95,
+            "model":    "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": built["system"]},
+                {"role": "user",   "content": built["user"]},
+            ],
+            "max_tokens":  300,
+            "temperature": 0.92,
         },
         timeout=30,
     )
     response.raise_for_status()
     text = response.json()["choices"][0]["message"]["content"].strip()
 
-    # Remove any quotes DeepSeek might add
+    # Strip surrounding quotes if model adds them
     if text.startswith('"') and text.endswith('"'):
         text = text[1:-1]
 
     return text
 
 
-def append_course_link(text: str, angle_data: dict) -> str:
-    """Append course link to post text if this angle includes a link."""
-    if not angle_data.get("include_link"):
+def append_link(text: str, slot: int, course: str) -> str:
+    """Only slot 3 (evening offer) gets the course link."""
+    if slot != 3:
         return text
-
-    course = angle_data.get("link_course", "tiktok")
-    url = TIKTOK_COURSE_URL if course == "tiktok" else INSTAGRAM_COURSE_URL
-
+    url = INSTAGRAM_COURSE_URL if course == "instagram" else TIKTOK_COURSE_URL
     if not url:
-        print(f"  ⚠️  {course.upper()}_COURSE_URL not set — skipping link")
+        print("  ⚠️  Course URL not set — skipping link")
         return text
-
-    combined = f"{text}\n\n👉 {url}"
-
-    # Enforce 300 char limit
+    suffix   = f"\n\n👉 {url}"
+    combined = text + suffix
     if len(combined) > 300:
-        max_text = 300 - len(f"\n\n👉 {url}")
-        text = text[:max_text - 3] + "..."
-        combined = f"{text}\n\n👉 {url}"
-
+        text     = text[: 300 - len(suffix) - 3] + "..."
+        combined = text + suffix
     return combined
 
 
-# ─── BLUESKY: LOGIN ───────────────────────────────────────────────────────────
+# ─── BLUESKY HELPERS ──────────────────────────────────────────────────────────
 def bsky_login(handle: str, password: str) -> dict:
     r = requests.post(
         "https://bsky.social/xrpc/com.atproto.server.createSession",
@@ -339,7 +194,6 @@ def bsky_login(handle: str, password: str) -> dict:
     return r.json()
 
 
-# ─── BLUESKY: IMAGE UPLOAD ────────────────────────────────────────────────────
 def bsky_upload_image(session: dict, image_path: str) -> dict | None:
     try:
         with open(image_path, "rb") as f:
@@ -348,7 +202,7 @@ def bsky_upload_image(session: dict, image_path: str) -> dict | None:
             "https://bsky.social/xrpc/com.atproto.repo.uploadBlob",
             headers={
                 "Authorization": f"Bearer {session['accessJwt']}",
-                "Content-Type": "image/jpeg",
+                "Content-Type":  "image/jpeg",
             },
             data=img_data,
             timeout=30,
@@ -356,7 +210,7 @@ def bsky_upload_image(session: dict, image_path: str) -> dict | None:
         r.raise_for_status()
         return r.json()["blob"]
     except Exception as e:
-        print(f"  ⚠️  Image upload error: {e}")
+        print(f"  ⚠️  Image upload failed: {e}")
         return None
     finally:
         try:
@@ -365,56 +219,43 @@ def bsky_upload_image(session: dict, image_path: str) -> dict | None:
             pass
 
 
-# ─── FACETS: HASHTAG + LINK ───────────────────────────────────────────────────
 def build_facets(text: str) -> list:
-    """Build Bluesky rich-text facets for both hashtags and URLs."""
     facets = []
-
-    # Hashtag facets
     for match in re.finditer(r"#(\w+)", text):
         tag   = match.group(1)
-        start = len(text[:match.start()].encode("utf-8"))
-        end   = len(text[:match.end()].encode("utf-8"))
+        start = len(text[: match.start()].encode("utf-8"))
+        end   = len(text[: match.end()].encode("utf-8"))
         facets.append({
-            "index": {"byteStart": start, "byteEnd": end},
+            "index":    {"byteStart": start, "byteEnd": end},
             "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": tag}],
         })
-
-    # Link facets — detect URLs
-    url_pattern = r"https?://[^\s\)\]\}\"']+"
-    for match in re.finditer(url_pattern, text):
+    for match in re.finditer(r"https?://[^\s\)\]\}\"']+", text):
         url   = match.group(0)
-        start = len(text[:match.start()].encode("utf-8"))
-        end   = len(text[:match.end()].encode("utf-8"))
+        start = len(text[: match.start()].encode("utf-8"))
+        end   = len(text[: match.end()].encode("utf-8"))
         facets.append({
-            "index": {"byteStart": start, "byteEnd": end},
+            "index":    {"byteStart": start, "byteEnd": end},
             "features": [{"$type": "app.bsky.richtext.facet#link", "uri": url}],
         })
-
     return facets
 
 
-# ─── BLUESKY: POST ────────────────────────────────────────────────────────────
 def bsky_post(session: dict, text: str, image_path: str | None = None, alt_text: str = "") -> str:
     facets = build_facets(text)
-
     record = {
-        "$type": "app.bsky.feed.post",
-        "text": text,
+        "$type":     "app.bsky.feed.post",
+        "text":      text,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
     if facets:
         record["facets"] = facets
-
-    # Image attach
     if image_path:
         blob = bsky_upload_image(session, image_path)
         if blob:
             record["embed"] = {
-                "$type": "app.bsky.embed.images",
-                "images": [{"image": blob, "alt": alt_text or "Course marketing image"}],
+                "$type":  "app.bsky.embed.images",
+                "images": [{"image": blob, "alt": alt_text or "Course image"}],
             }
-
     r = requests.post(
         "https://bsky.social/xrpc/com.atproto.repo.createRecord",
         headers={"Authorization": f"Bearer {session['accessJwt']}"},
@@ -425,93 +266,76 @@ def bsky_post(session: dict, text: str, image_path: str | None = None, alt_text:
     return r.json()["uri"]
 
 
-# ─── MAIN ─────────────────────────────────────────────────────────────────────
+# ─── MAIN ────────────────────────────────────────────────────────────────────
 def main():
-    accounts = load_accounts()
-
-    # Determine which time slot (1=morning, 2=afternoon, 3=evening)
+    accounts  = load_accounts()
     time_slot = int(os.environ.get("TIME_SLOT", "1"))
 
-    # Determine day of week (0=Monday ... 6=Sunday) in EST
-    # GitHub Actions runs in UTC, but we base schedule on EST day
-    from datetime import timedelta
-    utc_now = datetime.now(timezone.utc)
-    est_now = utc_now - timedelta(hours=5)  # Approximate EST
+    utc_now     = datetime.now(timezone.utc)
+    est_now     = utc_now - timedelta(hours=5)
     day_of_week = est_now.weekday()
+    course      = COURSE_BY_DAY.get(day_of_week, "instagram")
 
-    # Get today's schedule
-    schedule = WEEKLY_SCHEDULE.get(day_of_week, ("A1", "B1", "D1_tiktok"))
-    slot_index = max(0, min(time_slot - 1, 2))
-    angle_id = schedule[slot_index]
-    angle_data = ANGLES[angle_id]
+    meta     = IMAGE_META[time_slot][course]
+    img_main, img_sub, category = meta
 
-    print(f"🚀 Bluesky Course Marketing Poster")
-    print(f"📅 Day: {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day_of_week]} | Slot: {time_slot}")
-    print(f"📌 Angle: {angle_id} ({angle_data['category']})")
-    print(f"🎯 Course: {angle_data['course']}")
-    print(f"👥 Accounts: {len(accounts)}টি\n")
+    slot_label = {1: "☀️ Morning (Value)", 2: "🍔 Afternoon (Curiosity)", 3: "🌆 Evening (Soft Offer)"}
 
-    results = []
+    print(f"🚀 Bluesky Bot — Single Master Prompt")
+    print(f"📅 {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day_of_week]} | {slot_label[time_slot]}")
+    print(f"🎯 Course: {course.upper()} | Accounts: {len(accounts)}\n")
+
+    prompt_data = {"slot": time_slot, "course": course}
+    results     = []
 
     for i, account in enumerate(accounts):
         print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print(f"👤 Account {account['id']}: {account['handle']}")
-        print(f"📌 Angle: {angle_id} | Variation: {i + 1}")
 
         try:
-            # 1. Login
-            print(f"  🔑 Login করছি...")
+            print(f"  🔑 Logging in...")
             session = bsky_login(account["handle"], account["password"])
-            print(f"  ✅ Login সফল!")
+            print(f"  ✅ Login success")
 
-            # 2. Generate unique text (variation per account)
-            print(f"  🤖 Text লিখছি (variation {i + 1})...")
-            post_text = generate_post_text(angle_data, variation_seed=i)
+            print(f"  🤖 Generating text (variation {i + 1})...")
+            post_text = generate_post_text(prompt_data, variation=i)
+            post_text = append_link(post_text, time_slot, course)
 
-            # 3. Append course link if needed
-            post_text = append_course_link(post_text, angle_data)
-
-            # Enforce 300 char hard limit
+            # Hard safety cap
             if len(post_text) > 300:
                 post_text = post_text[:297] + "..."
 
-            print(f"  ✍️  {post_text[:80]}...")
+            print(f"  ✍️  {post_text[:100]}...")
             print(f"  📏 {len(post_text)} chars")
 
-            # 4. Generate image
-            print(f"  🖼️  Image বানাচ্ছি...")
+            print(f"  🖼️  Generating image...")
             image_path = generate_image(
-                main_text=angle_data["image_main"],
-                sub_text=angle_data["image_sub"],
-                category=angle_data["category"],
-                course=angle_data["course"],
+                main_text=img_main,
+                sub_text=img_sub,
+                category=category,
+                course=course,
             )
-            print(f"  ✅ Image তৈরি!")
+            print(f"  ✅ Image ready")
 
-            # 5. Post
-            print(f"  📤 Post করছি...")
-            alt_text = f"{angle_data['image_main']} — {angle_data['image_sub']}"
+            print(f"  📤 Posting...")
+            alt_text = f"{img_main} — {img_sub}"
             uri = bsky_post(session, post_text, image_path, alt_text)
-            print(f"  ✅ পোস্ট সফল! {uri}")
+            print(f"  ✅ Posted! {uri}")
             results.append({"account": account["handle"], "status": "success", "uri": uri})
 
         except Exception as e:
-            print(f"  ❌ ব্যর্থ: {e}")
+            print(f"  ❌ Failed: {e}")
             results.append({"account": account["handle"], "status": "failed", "error": str(e)})
 
-        # Random delay between accounts (anti-spam)
         if i < len(accounts) - 1:
-            delay = random.randint(10, 30)
-            print(f"  ⏳ {delay} সেকেন্ড অপেক্ষা...")
+            delay = random.randint(15, 35)
+            print(f"  ⏳ Waiting {delay}s...")
             time.sleep(delay)
 
-    # Summary
     success = sum(1 for r in results if r["status"] == "success")
     failed  = sum(1 for r in results if r["status"] == "failed")
     print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print(f"📊 সারসংক্ষেপ: ✅ {success} সফল | ❌ {failed} ব্যর্থ")
-    print(f"📌 Angle: {angle_id} | Category: {angle_data['category']} | Course: {angle_data['course']}")
-    print("🎉 সম্পন্ন!")
+    print(f"📊 Done: ✅ {success} success | ❌ {failed} failed")
 
     if success == 0:
         exit(1)
