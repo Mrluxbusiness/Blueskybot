@@ -30,101 +30,142 @@ if not DEEPSEEK_API_KEY:
 
 
 # ─── MASTER PROMPT ────────────────────────────────────────────────────────────
-# Research-backed: Bluesky values authority, specificity, and genuine helpfulness.
-# No income claims. No price anchoring. Teach first, sell softly.
+#
+# Style 3 = "Teach then sell" → Slot 1 (Morning) & Slot 2 (Afternoon)
+#   Teach ONE specific, concrete thing about the platform.
+#   At the end, mention the course as a natural next step — not a hard pitch.
+#
+# Style 4 = "Honest builder" → Slot 3 (Evening)
+#   No income claims. No price anchoring. No fake urgency.
+#   Sound like a real person sharing something they built.
+#   Name ONE concrete skill the buyer walks away with.
+#
 
 def build_master_prompt(slot: int, course: str, variation: int) -> dict:
-    """
-    slot 1 = Morning  → Pure value, teach something specific. No CTA.
-    slot 2 = Afternoon → Curiosity / relatable story. No income claims.
-    slot 3 = Evening   → Soft offer, ONE link. Authority-led, not sales-led.
-
-    course = "instagram" or "tiktok"
-    variation = 0..4 (for multi-account uniqueness)
-    """
-
     course_url   = INSTAGRAM_COURSE_URL if course == "instagram" else TIKTOK_COURSE_URL
     platform     = "Instagram" if course == "instagram" else "TikTok"
-    opp_platform = "TikTok" if course == "instagram" else "Instagram"
 
-    # Slot 3 appends link — keep text shorter to fit 300 char limit
-    char_limit = "under 240 characters" if slot == 3 else "under 280 characters"
+    # ── SLOT 1 — Morning: Style 3 "Teach then sell" ──────────────────────────
+    # Lead with a real, specific insight. The course mention is the last line,
+    # framed as "I documented this" — not "buy now".
+    slot1_instruction = f"""You are posting a TEACH-THEN-SELL post (Style 3).
 
-    slot_instruction = {
-        1: f"""You are posting a VALUE post. Your ONLY goal is to teach.
-Pick ONE specific, counterintuitive tip about {platform} growth in 2026.
-Be concrete — mention a mechanism, a number, or a "why" that most people don't know.
-Do NOT mention any course, product, or yourself. Just pure value.
-End with a question to spark replies (e.g. "Have you tried this?").""",
+Step 1 — Teach ONE specific, counterintuitive thing about how the {platform} algorithm works in 2026.
+  - Name a concrete mechanism (e.g. "watch time %", "saves vs likes", "repost signals")
+  - Explain briefly WHY it matters — the logic, not just the fact
+  - Keep it to 2–3 short paragraphs
 
-        2: f"""You are posting a CURIOSITY / STORY post.
-Share a short relatable observation or mistake creators make on {platform}.
-Frame it as "I noticed..." or "Most people do X, but actually Y."
-Be specific. No vague generalities.
-NO income claims (no "$X/month", no follower counts as proof).
-A soft, natural mention that you've documented what works is okay — but no hard sell.""",
+Step 2 — End with a single soft offer line, like:
+  "I documented this + more in a $7 course → [link]"
+  or "Built a $7 course around this exact thing → [link]"
 
-        3: f"""You are posting a SOFT OFFER post.
-You have a practical, affordable {platform} growth course ($7).
-Do NOT use price anchoring ("gurus charge $497").
-Do NOT make income claims.
-Instead, name ONE concrete skill or outcome the student gets from the course —
-something specific like "you'll know exactly which content format gets saved on {platform}, and why saves beat likes for the algorithm."
-End with a single gentle CTA. The course link will be added below automatically.
-Keep it human, not salesy. Sound like a builder sharing their work.""",
-    }[slot]
+Rules:
+- The teaching must be SPECIFIC. Not "post consistently" — give the actual mechanic.
+- No income claims. No "I grew from X to Y".
+- The offer line must feel like a natural footnote, not a sales pitch.
+- The course link will be appended automatically — do NOT include a URL in your text.
+- End with 2 specific hashtags only (e.g. #{platform}Tips, #ContentStrategy)."""
+
+    # ── SLOT 2 — Afternoon: Style 3 variant "Relatable story + teach" ────────
+    # Start with a relatable mistake or observation. Teach the fix. Soft offer.
+    slot2_instruction = f"""You are posting a STORY-THEN-TEACH post (Style 3 variant).
+
+Step 1 — Open with a relatable observation or common mistake creators make on {platform}.
+  Frame it as: "Most creators do X — but actually Y"
+  OR: "I noticed that accounts which [do X] consistently [get Y result]"
+  Be specific — name the actual behaviour, not a vague platitude.
+
+Step 2 — Explain the better approach in 1–2 short paragraphs. Concrete, not generic.
+
+Step 3 — One soft offer line at the end:
+  "Covered this in detail in my $7 {platform} course → [link]"
+  or "I broke this down properly in a $7 course → [link]"
+
+Rules:
+- NO income claims ("I made $X", "from 0 to 10K followers")
+- The course mention is a footnote — 1 line max
+- The course link will be appended automatically — do NOT include a URL
+- 2 specific hashtags only"""
+
+    # ── SLOT 3 — Evening: Style 4 "Honest builder" ───────────────────────────
+    # Shorter. No hype. Sound like a person sharing their work.
+    # Name ONE concrete skill or outcome. $7 mentioned naturally.
+    slot3_instruction = f"""You are posting an HONEST BUILDER post (Style 4).
+
+You spent time learning {platform} growth and documented what actually works into a $7 course.
+Your job: sound like a real person sharing something they built — not a marketer selling it.
+
+Structure:
+1. One honest opening — why you made this (e.g. "Spent months figuring out {platform}...")
+2. Name ONE specific, concrete skill the buyer gets (not vague like "grow your account" —
+   something like "you'll know exactly which content format gets saved and why saves beat likes for reach")
+3. Mention $7 naturally — not as a discount or deal, just as the price
+4. One gentle CTA. The course link will be appended automatically — do NOT include a URL.
+
+Hard rules:
+- NO price anchoring ("gurus charge $497")
+- NO income claims
+- NO fake urgency ("price going up!")
+- NO generic phrases like "step by step", "game changer", "passive income"
+- Keep it under 220 characters of actual text (before the link is added)
+- 2 hashtags max — make them specific, not #MakeMoneyOnline"""
+
+    slot_instruction = {1: slot1_instruction, 2: slot2_instruction, 3: slot3_instruction}[slot]
 
     variation_note = (
-        f"\n\nThis is account variation #{variation + 1}. "
-        "Use a completely different opening word, angle, and sentence structure "
-        "from other variations. Be creative — same topic, fresh voice."
+        f"\n\nVariation #{variation + 1}: Use a completely different opening word, "
+        "angle, and sentence structure from other variations. Same topic, fresh voice."
         if variation > 0 else ""
     )
 
-    system = """You are a Bluesky-native creator who understands this platform deeply.
-Bluesky users are tech-savvy, anti-spam, and left Twitter to escape "guru" culture.
-They reward specificity and punish vague marketing language.
-Rules you NEVER break:
-- No income claims ("I made $X", "from 200 to $4000")
-- No price anchoring ("gurus charge $497, I charge $7")
-- No fake urgency ("price going up soon")
-- No generic hashtags like #MakeMoneyOnline or #OnlineBusiness
-- Use only 2–3 highly specific hashtags relevant to the content
-- Sound like a real person, not a marketing bot
-- Return ONLY the post text. Nothing else. No quotes around it."""
+    system = f"""You write Bluesky posts for a creator who sells a $7 {platform} growth course.
 
-    user = f"""{slot_instruction}
+Bluesky users are tech-savvy, left Twitter to escape guru culture, and will instantly
+ignore anything that smells like a marketing bot. They reward specificity and honesty.
 
-Platform focus: {platform}
-Character limit: {char_limit} — count carefully before returning.
-Use 2–3 specific hashtags (e.g. #{platform}Tips, #ContentStrategy, #CreatorTips — pick what fits).
-{variation_note}
+Your writing style:
+- Sounds like a real person who actually uses {platform} and noticed something
+- Specific and concrete — names mechanisms, behaviours, numbers where relevant
+- Never hype-y, never salesy, never generic
+- Short paragraphs. Breathing room. Not a wall of text.
 
-Return ONLY the post text."""
+You NEVER write:
+- Income claims ("I made $X/month", "from 200 to $4000")
+- Price anchoring ("gurus charge $497, I charge $7")
+- Fake urgency ("price going up!", "limited time")
+- Generic hashtags (#MakeMoneyOnline, #OnlineBusiness, #Hustle)
+- Filler phrases ("game changer", "passive income", "step by step system")
 
-    return {"system": system, "user": user, "slot": slot, "course": course, "course_url": course_url, "platform": platform}
+Return ONLY the post text. No quotes around it. Nothing else."""
+
+    return {
+        "system":     system,
+        "user":       slot_instruction + variation_note,
+        "slot":       slot,
+        "course":     course,
+        "course_url": course_url,
+        "platform":   platform,
+    }
 
 
 # ─── IMAGE METADATA ───────────────────────────────────────────────────────────
 IMAGE_META = {
-    # slot → (main_text, sub_text, category)
     1: {
-        "instagram": ("Instagram Algorithm 2026",    "What actually gets you reach 📈",   "value"),
-        "tiktok":    ("TikTok Tips That Work",        "Grow faster this year 🚀",          "value"),
+        "instagram": ("Instagram Algorithm 2026",     "What actually gets you reach 📈",  "value"),
+        "tiktok":    ("TikTok Tips That Work",         "Grow faster this year 🚀",         "value"),
     },
     2: {
-        "instagram": ("Most Creators Get This Wrong", "Here's what actually works 💡",     "curiosity"),
-        "tiktok":    ("The Mistake Killing Your Reach","And the simple fix 🔧",             "curiosity"),
+        "instagram": ("Most Creators Get This Wrong",  "Here's what actually works 💡",    "curiosity"),
+        "tiktok":    ("The Mistake Killing Your Reach","And the simple fix 🔧",            "curiosity"),
     },
     3: {
-        "instagram": ("Instagram Income Mastery",     "Step-by-step · $7 · 8 Modules 🎯", "offer"),
-        "tiktok":    ("TikTok Income Mastery",        "Step-by-step · $7 · 8 Modules 🎯", "offer"),
+        "instagram": ("Instagram Growth Course",       "Practical · $7 · No fluff 🎯",    "offer"),
+        "tiktok":    ("TikTok Growth Course",          "Practical · $7 · No fluff 🎯",    "offer"),
     },
 }
 
 
 # ─── WEEKLY COURSE ROTATION ───────────────────────────────────────────────────
-# Alternate Instagram / TikTok so both get equal exposure across the week
 COURSE_BY_DAY = {
     0: "instagram",  # Monday
     1: "tiktok",
@@ -152,8 +193,8 @@ def generate_post_text(prompt_data: dict, variation: int) -> str:
                 {"role": "system", "content": built["system"]},
                 {"role": "user",   "content": built["user"]},
             ],
-            "max_tokens":  300,
-            "temperature": 0.92,
+            "max_tokens":  320,
+            "temperature": 0.88,
         },
         timeout=30,
     )
@@ -168,13 +209,16 @@ def generate_post_text(prompt_data: dict, variation: int) -> str:
 
 
 def append_link(text: str, slot: int, course: str) -> str:
-    """Only slot 3 (evening offer) gets the course link."""
-    if slot != 3:
-        return text
+    """
+    All 3 slots now get the course link — soft offer is baked into every post.
+    Slot 1 & 2: link appears as a natural footnote at the end.
+    Slot 3: same, but the CTA line before it is more direct.
+    """
     url = INSTAGRAM_COURSE_URL if course == "instagram" else TIKTOK_COURSE_URL
     if not url:
         print("  ⚠️  Course URL not set — skipping link")
         return text
+
     suffix   = f"\n\n👉 {url}"
     combined = text + suffix
     if len(combined) > 300:
@@ -229,7 +273,7 @@ def build_facets(text: str) -> list:
             "index":    {"byteStart": start, "byteEnd": end},
             "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": tag}],
         })
-    for match in re.finditer(r"https?://[^\s\)\]\}\"']+", text):
+    for match in re.finditer(r"https?://[^\s\)\]\}\"\')]+", text):
         url   = match.group(0)
         start = len(text[: match.start()].encode("utf-8"))
         end   = len(text[: match.end()].encode("utf-8"))
@@ -279,9 +323,13 @@ def main():
     meta     = IMAGE_META[time_slot][course]
     img_main, img_sub, category = meta
 
-    slot_label = {1: "☀️ Morning (Value)", 2: "🍔 Afternoon (Curiosity)", 3: "🌆 Evening (Soft Offer)"}
+    slot_label = {
+        1: "☀️ Morning (Teach then Sell)",
+        2: "🍔 Afternoon (Story + Teach)",
+        3: "🌆 Evening (Honest Builder Offer)",
+    }
 
-    print(f"🚀 Bluesky Bot — Single Master Prompt")
+    print(f"🚀 Bluesky Bot — Style 3 & 4 Prompt System")
     print(f"📅 {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day_of_week]} | {slot_label[time_slot]}")
     print(f"🎯 Course: {course.upper()} | Accounts: {len(accounts)}\n")
 
