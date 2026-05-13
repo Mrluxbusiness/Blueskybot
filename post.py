@@ -5,6 +5,7 @@ import random
 import requests
 import tempfile
 from datetime import datetime, timezone, timedelta
+from openai import OpenAI
 from image_gen import generate_image
 
 # ─── ACCOUNTS ────────────────────────────────────────────────────────────────
@@ -20,13 +21,19 @@ def load_accounts() -> list[dict]:
         exit(1)
     return accounts
 
-DEEPSEEK_API_KEY     = os.environ.get("DEEPSEEK_API_KEY")
+NVIDIA_API_KEY       = os.environ.get("NVIDIA_API_KEY")
 TIKTOK_COURSE_URL    = os.environ.get("TIKTOK_COURSE_URL", "")
 INSTAGRAM_COURSE_URL = os.environ.get("INSTAGRAM_COURSE_URL", "")
 
-if not DEEPSEEK_API_KEY:
-    print("❌ DEEPSEEK_API_KEY missing!")
+if not NVIDIA_API_KEY:
+    print("❌ NVIDIA_API_KEY missing!")
     exit(1)
+
+# ─── NVIDIA NIM CLIENT ────────────────────────────────────────────────────────
+nvidia_client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=NVIDIA_API_KEY,
+)
 
 
 # ─── MASTER PROMPT ────────────────────────────────────────────────────────────
@@ -181,25 +188,17 @@ COURSE_BY_DAY = {
 def generate_post_text(prompt_data: dict, variation: int) -> str:
     built = build_master_prompt(prompt_data["slot"], prompt_data["course"], variation)
 
-    response = requests.post(
-        "https://api.deepseek.com/chat/completions",
-        headers={
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type":  "application/json",
-        },
-        json={
-            "model":    "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": built["system"]},
-                {"role": "user",   "content": built["user"]},
-            ],
-            "max_tokens":  320,
-            "temperature": 0.88,
-        },
-        timeout=30,
+    completion = nvidia_client.chat.completions.create(
+        model="deepseek-ai/deepseek-v4-flash",
+        messages=[
+            {"role": "system", "content": built["system"]},
+            {"role": "user",   "content": built["user"]},
+        ],
+        temperature=0.88,
+        top_p=0.95,
+        max_tokens=320,
     )
-    response.raise_for_status()
-    text = response.json()["choices"][0]["message"]["content"].strip()
+    text = completion.choices[0].message.content.strip()
 
     # Strip surrounding quotes if model adds them
     if text.startswith('"') and text.endswith('"'):
