@@ -71,10 +71,9 @@ jobs:
 
       - name: 🚀 Run Course Marketing Poster
         env:
-          NVIDIA_API_KEY:      ${{ secrets.NVIDIA_API_KEY }}
-          TIKTOK_COURSE_URL:   ${{ secrets.TIKTOK_COURSE_URL }}
-          INSTAGRAM_COURSE_URL: ${{ secrets.INSTAGRAM_COURSE_URL }}
-          TIME_SLOT:           ${{ steps.slot.outputs.time_slot }}
+          NVIDIA_API_KEY:    ${{ secrets.NVIDIA_API_KEY }}
+          TIKTOK_COURSE_URL: ${{ secrets.TIKTOK_COURSE_URL }}
+          TIME_SLOT:         ${{ steps.slot.outputs.time_slot }}
 
           BSKY_HANDLE_1:       ${{ secrets.BSKY_HANDLE_1 }}
           BSKY_PASSWORD_1:     ${{ secrets.BSKY_PASSWORD_1 }}
