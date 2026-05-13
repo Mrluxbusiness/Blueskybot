@@ -49,7 +49,7 @@ jobs:
           fc-cache -f
 
       - name: 📦 Install dependencies
-        run: pip install requests pillow
+        run: pip install requests pillow openai
 
       - name: 🕐 Determine Time Slot
         id: slot
@@ -71,7 +71,7 @@ jobs:
 
       - name: 🚀 Run Course Marketing Poster
         env:
-          DEEPSEEK_API_KEY:    ${{ secrets.DEEPSEEK_API_KEY }}
+          NVIDIA_API_KEY:      ${{ secrets.NVIDIA_API_KEY }}
           TIKTOK_COURSE_URL:   ${{ secrets.TIKTOK_COURSE_URL }}
           INSTAGRAM_COURSE_URL: ${{ secrets.INSTAGRAM_COURSE_URL }}
           TIME_SLOT:           ${{ steps.slot.outputs.time_slot }}
