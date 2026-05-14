@@ -88,16 +88,28 @@ def generate_post_text(variation: int) -> str:
     user_msg = USER_PROMPT_TEMPLATE.format(variation=variation + 1)
 
     completion = nvidia_client.chat.completions.create(
-        model="deepseek-ai/deepseek-v4-flash",
+        model="nvidia/nemotron-3-super-120b-a12b",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_msg},
         ],
-        temperature=0.92,
+        temperature=1,
         top_p=0.95,
-        max_tokens=200,
+        max_tokens=16384,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        stream=True,
     )
-    text = completion.choices[0].message.content.strip()
+
+    # Collect streamed chunks into full text
+    collected = []
+    for chunk in completion:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta.content
+        if delta is not None:
+            collected.append(delta)
+
+    text = "".join(collected).strip()
 
     # Strip surrounding quotes if model wraps them
     if text.startswith('"') and text.endswith('"'):
