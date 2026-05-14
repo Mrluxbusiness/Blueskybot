@@ -88,15 +88,14 @@ def generate_post_text(variation: int) -> str:
     user_msg = USER_PROMPT_TEMPLATE.format(variation=variation + 1)
 
     completion = nvidia_client.chat.completions.create(
-        model="nvidia/nemotron-3-super-120b-a12b",
+        model="meta/llama-3.3-70b-instruct",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_msg},
         ],
         temperature=1,
         top_p=0.95,
-        max_tokens=16384,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        max_tokens=500,
         stream=True,
     )
 
